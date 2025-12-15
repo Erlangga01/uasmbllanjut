@@ -39,6 +39,9 @@ dependencies:
   provider: ^6.1.5+1
   google_fonts: ^6.3.2
   font_awesome_flutter: ^10.9.1
+  blue_thermal_printer: ^1.2.3
+  esc_pos_utils_plus: ^2.0.4
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:

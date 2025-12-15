@@ -6,6 +6,9 @@ import '../providers/app_provider.dart';
 import '../models/product.dart';
 import '../models/transaction.dart';
 import '../models/cart_item.dart';
+import '../services/print_thermal.dart';
+import 'package:blue_thermal_printer/blue_thermal_printer.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class InputPage extends StatefulWidget {
   const InputPage({super.key});
@@ -141,6 +144,18 @@ class _InputPageState extends State<InputPage> {
           _selectedProduct = null;
           _qtyController.text = '1';
         });
+
+        // Prompt to print
+        final latestTransactions = context.read<AppProvider>().transactions;
+        if (latestTransactions.isNotEmpty) {
+          // Sort by ID desc to get the latest just in case
+          // Creating a copy to avoid modifying provider list if it matters, though sort is in place usu.
+          // Safe way:
+          final latest = latestTransactions.reduce(
+            (curr, next) => curr.id > next.id ? curr : next,
+          );
+          _showPrintDialog(latest);
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -500,6 +515,143 @@ class _InputPageState extends State<InputPage> {
           disabledBackgroundColor: Colors.blue.shade300,
         ),
       ),
+    );
+  }
+
+  // Printing Logic
+  Future<void> _showPrintDialog(TransactionResponse transaction) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Transaksi Berhasil'),
+            content: const Text('Apakah anda ingin mencetak struk?'),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                },
+                child: const Text('Tidak'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  _processPrint(transaction);
+                },
+                child: const Text('Cetak'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  Future<void> _processPrint(TransactionResponse transaction) async {
+    // 1. Check Permissions
+    if (await Permission.bluetoothConnect.request().isGranted &&
+        await Permission.bluetoothScan.request().isGranted &&
+        await Permission.location.request().isGranted) {
+      // 2. Check Connection
+      bool? isConnected = await PrintThermal.bluetooth.isConnected;
+      if (isConnected == true) {
+        await PrintThermal.printReceipt(transaction);
+      } else {
+        // Try to auto-connect to "Accessgo" or "Accesgo"
+        List<BluetoothDevice> bondedDevices = [];
+        try {
+          bondedDevices = await PrintThermal.bluetooth.getBondedDevices();
+        } catch (e) {
+          // ignore
+        }
+
+        BluetoothDevice? targetDevice;
+        try {
+          targetDevice = bondedDevices.firstWhere(
+            (d) => (d.name ?? '').toLowerCase().contains('acces'),
+          );
+        } catch (e) {
+          targetDevice = null;
+        }
+
+        if (targetDevice != null) {
+          try {
+            await PrintThermal.bluetooth.connect(targetDevice);
+            await PrintThermal.printReceipt(transaction);
+          } catch (e) {
+            // Fallback to manual selection if auto-connect fails
+            _showDeviceSelection(transaction);
+          }
+        } else {
+          // 3. Select Device
+          _showDeviceSelection(transaction);
+        }
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Izin Bluetooth diperlukan untuk mencetak'),
+        ),
+      );
+    }
+  }
+
+  void _showDeviceSelection(TransactionResponse transaction) async {
+    List<BluetoothDevice> devices = [];
+    try {
+      devices = await PrintThermal.bluetooth.getBondedDevices();
+    } catch (e) {
+      // ignore
+    }
+
+    if (devices.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tidak ada printer terpasang ditemukan'),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      builder:
+          (ctx) => Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Pilih Printer',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+                const SizedBox(height: 12),
+                ...devices.map(
+                  (device) => ListTile(
+                    title: Text(device.name ?? 'Unknown'),
+                    subtitle: Text(device.address ?? ''),
+                    onTap: () async {
+                      Navigator.of(ctx).pop();
+                      try {
+                        await PrintThermal.bluetooth.connect(device);
+                        await PrintThermal.printReceipt(transaction);
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Gagal koneksi: $e')),
+                          );
+                        }
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
     );
   }
 }

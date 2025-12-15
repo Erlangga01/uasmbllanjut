@@ -23,7 +23,7 @@ class _InputPageState extends State<InputPage> {
   );
 
   Product? _selectedProduct;
-  List<CartItem> _cart = [];
+  final List<CartItem> _cart = [];
 
   @override
   void initState() {

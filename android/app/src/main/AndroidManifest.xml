@@ -3,13 +3,7 @@
         android:label="uasmbllanjut"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <activity
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"

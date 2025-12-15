@@ -34,7 +34,7 @@ class _InputPageState extends State<InputPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppProvider>().fetchProducts();
       // Ensure we have latest transactions for the recent activity list
-      context.read<AppProvider>().fetchTransactions();
+      context.read<AppProvider>().fetchTransactions(); 
     });
   }
 
@@ -51,11 +51,7 @@ class _InputPageState extends State<InputPage> {
     if (_selectedProduct == null) return '0';
     int qty = int.tryParse(_qtyController.text) ?? 0;
     double total = _selectedProduct!.price * qty;
-    return NumberFormat.currency(
-      locale: 'id_ID',
-      symbol: 'Rp ',
-      decimalDigits: 0,
-    ).format(total);
+    return NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format(total);
   }
 
   // Calculate total for the entire cart
@@ -75,15 +71,13 @@ class _InputPageState extends State<InputPage> {
 
       setState(() {
         // Check if product already exists in cart
-        int existingIndex = _cart.indexWhere(
-          (item) => item.product.id == _selectedProduct!.id,
-        );
+        int existingIndex = _cart.indexWhere((item) => item.product.id == _selectedProduct!.id);
         if (existingIndex != -1) {
           _cart[existingIndex].quantity += qty;
         } else {
           _cart.add(CartItem(product: _selectedProduct!, quantity: qty));
         }
-
+        
         // Reset product input only
         _selectedProduct = null;
         _qtyController.text = '1';
@@ -103,35 +97,28 @@ class _InputPageState extends State<InputPage> {
 
   void _submitTransaction() async {
     if (_customerController.text.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Harap isi nama pelanggan')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Harap isi nama pelanggan')),
+      );
       return;
     }
     if (_cart.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Keranjang masih kosong')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keranjang masih kosong')),
+      );
       return;
     }
 
     final transaction = CreateTransactionDto(
       customerName: _customerController.text,
       transactionDate: _dateController.text,
-      items:
-          _cart
-              .map(
-                (item) => TransactionItem(
-                  productId: item.product.id,
-                  quantity: item.quantity,
-                ),
-              )
-              .toList(),
+      items: _cart.map((item) => TransactionItem(
+        productId: item.product.id,
+        quantity: item.quantity,
+      )).toList(),
     );
 
-    bool success = await context.read<AppProvider>().submitTransaction(
-      transaction,
-    );
+    bool success = await context.read<AppProvider>().submitTransaction(transaction);
 
     if (mounted) {
       if (success) {
@@ -158,11 +145,7 @@ class _InputPageState extends State<InputPage> {
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              context.read<AppProvider>().errorMessage ?? 'Gagal menyimpan',
-            ),
-          ),
+          SnackBar(content: Text(context.read<AppProvider>().errorMessage ?? 'Gagal menyimpan')),
         );
       }
     }
@@ -179,7 +162,7 @@ class _InputPageState extends State<InputPage> {
             children: [
               // 1. Transaction Header (Customer & Date)
               _buildTransactionHeader(),
-
+              
               const SizedBox(height: 20),
 
               // 2. Add Item Form
@@ -208,6 +191,52 @@ class _InputPageState extends State<InputPage> {
     );
   }
 
+  Widget _buildRecentActivityItem(TransactionResponse transaction) {
+    final currencyFormat = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
+    // Display the first item name or "Multi-item"
+    String itemName = transaction.items.isNotEmpty 
+        ? (transaction.items.length > 1 ? '${transaction.items.first.productName} (+${transaction.items.length - 1} lainnya)' : transaction.items.first.productName)
+        : 'Transaksi Baru';
+        
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: const Border(
+          left: BorderSide(color: Colors.green, width: 4),
+          top: BorderSide(color: Color(0xFFF3F4F6)),
+          right: BorderSide(color: Color(0xFFF3F4F6)),
+          bottom: BorderSide(color: Color(0xFFF3F4F6)),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 2,
+          )
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(itemName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
+                Text('${transaction.customerName} - ${DateFormat('HH:mm').format(transaction.createdAt)} WIB', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
+          ),
+          Text(
+            currencyFormat.format(transaction.totalAmount),
+            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 14),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTransactionHeader() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -215,20 +244,13 @@ class _InputPageState extends State<InputPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Data Penjualan',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
+          const Text('Data Penjualan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 16),
           // Date
           TextFormField(
@@ -248,9 +270,7 @@ class _InputPageState extends State<InputPage> {
               );
               if (pickedDate != null) {
                 setState(() {
-                  _dateController.text = DateFormat(
-                    'yyyy-MM-dd',
-                  ).format(pickedDate);
+                  _dateController.text = DateFormat('yyyy-MM-dd').format(pickedDate);
                 });
               }
             },
@@ -278,11 +298,7 @@ class _InputPageState extends State<InputPage> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.blue.withOpacity(0.2)),
         boxShadow: [
-          BoxShadow(
-            color: Colors.blue.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
+          BoxShadow(color: Colors.blue.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
         ],
       ),
       child: Form(
@@ -290,33 +306,18 @@ class _InputPageState extends State<InputPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Tambah Produk',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-                color: Colors.blue,
-              ),
-            ),
+            const Text('Tambah Produk', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue)),
             const SizedBox(height: 16),
-
+            
             // Product Dropdown
             DropdownButtonFormField<Product>(
               value: _selectedProduct,
               isExpanded: true,
               hint: const Text('Pilih Produk'),
-              items:
-                  provider.products
-                      .map(
-                        (p) => DropdownMenuItem(value: p, child: Text(p.name)),
-                      )
-                      .toList(),
+              items: provider.products.map((p) => DropdownMenuItem(value: p, child: Text(p.name))).toList(),
               onChanged: (val) => setState(() => _selectedProduct = val),
               decoration: const InputDecoration(
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 16,
-                ),
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                 border: OutlineInputBorder(),
               ),
             ),
@@ -329,10 +330,7 @@ class _InputPageState extends State<InputPage> {
                   child: TextFormField(
                     controller: _qtyController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Qty',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: 'Qty', border: OutlineInputBorder()),
                     onChanged: (_) => setState(() {}),
                   ),
                 ),
@@ -387,16 +385,9 @@ class _InputPageState extends State<InputPage> {
         ),
         child: Column(
           children: [
-            Icon(
-              Icons.shopping_basket_outlined,
-              size: 48,
-              color: Colors.grey.shade400,
-            ),
+            Icon(Icons.shopping_basket_outlined, size: 48, color: Colors.grey.shade400),
             const SizedBox(height: 8),
-            Text(
-              'Keranjang Kosong',
-              style: TextStyle(color: Colors.grey.shade500),
-            ),
+            Text('Keranjang Kosong', style: TextStyle(color: Colors.grey.shade500)),
           ],
         ),
       );
@@ -424,25 +415,14 @@ class _InputPageState extends State<InputPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          item.product.name,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          '${item.quantity} x ${NumberFormat.simpleCurrency(locale: 'id_ID', decimalDigits: 0).format(item.product.price)}',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
-                          ),
-                        ),
+                        Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${item.quantity} x ${NumberFormat.simpleCurrency(locale: 'id_ID', decimalDigits: 0).format(item.product.price)}',
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
                       ],
                     ),
                   ),
                   Text(
-                    NumberFormat.simpleCurrency(
-                      locale: 'id_ID',
-                      decimalDigits: 0,
-                    ).format(item.totalPrice),
+                    NumberFormat.simpleCurrency(locale: 'id_ID', decimalDigits: 0).format(item.totalPrice),
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   IconButton(
@@ -464,21 +444,10 @@ class _InputPageState extends State<InputPage> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Total Transaksi',
-                style: TextStyle(color: Colors.white, fontSize: 16),
-              ),
+              const Text('Total Transaksi', style: TextStyle(color: Colors.white, fontSize: 16)),
               Text(
-                NumberFormat.currency(
-                  locale: 'id_ID',
-                  symbol: 'Rp ',
-                  decimalDigits: 0,
-                ).format(_cartTotal),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format(_cartTotal),
+                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -492,17 +461,9 @@ class _InputPageState extends State<InputPage> {
       width: double.infinity,
       child: ElevatedButton.icon(
         onPressed: provider.isLoading ? null : _submitTransaction,
-        icon:
-            provider.isLoading
-                ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    color: Colors.white,
-                    strokeWidth: 2,
-                  ),
-                )
-                : const FaIcon(FontAwesomeIcons.solidFloppyDisk, size: 18),
+        icon: provider.isLoading
+            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+            : const FaIcon(FontAwesomeIcons.solidFloppyDisk, size: 18),
         label: Text(provider.isLoading ? 'Menyimpan...' : 'Simpan Transaksi'),
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF2563EB), // blue-600

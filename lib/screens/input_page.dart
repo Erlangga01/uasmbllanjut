@@ -27,6 +27,7 @@ class _InputPageState extends State<InputPage> {
 
   Product? _selectedProduct;
   final List<CartItem> _cart = [];
+  bool _shouldPrintReceipt = true; // Default to printing
 
   @override
   void initState() {
@@ -145,16 +146,17 @@ class _InputPageState extends State<InputPage> {
           _qtyController.text = '1';
         });
 
-        // Prompt to print
+        // Promt to print or auto-print based on checkbox
         final latestTransactions = context.read<AppProvider>().transactions;
         if (latestTransactions.isNotEmpty) {
           // Sort by ID desc to get the latest just in case
-          // Creating a copy to avoid modifying provider list if it matters, though sort is in place usu.
-          // Safe way:
           final latest = latestTransactions.reduce(
             (curr, next) => curr.id > next.id ? curr : next,
           );
-          _showPrintDialog(latest);
+
+          if (_shouldPrintReceipt) {
+            _processPrint(latest);
+          }
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -197,7 +199,23 @@ class _InputPageState extends State<InputPage> {
 
               const SizedBox(height: 24),
 
-              // 4. Submit Button
+              // 4. Print Option
+              CheckboxListTile(
+                value: _shouldPrintReceipt,
+                onChanged: (val) {
+                  setState(() {
+                    _shouldPrintReceipt = val ?? true;
+                  });
+                },
+                title: const Text('Cetak Struk Transaksi'),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                activeColor: const Color(0xFF2563EB),
+              ),
+
+              const SizedBox(height: 12),
+
+              // 5. Submit Button
               _buildSubmitButton(provider),
 
               const SizedBox(height: 24),
@@ -519,32 +537,6 @@ class _InputPageState extends State<InputPage> {
   }
 
   // Printing Logic
-  Future<void> _showPrintDialog(TransactionResponse transaction) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder:
-          (ctx) => AlertDialog(
-            title: const Text('Transaksi Berhasil'),
-            content: const Text('Apakah anda ingin mencetak struk?'),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                },
-                child: const Text('Tidak'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  _processPrint(transaction);
-                },
-                child: const Text('Cetak'),
-              ),
-            ],
-          ),
-    );
-  }
 
   Future<void> _processPrint(TransactionResponse transaction) async {
     // 1. Check Permissions
@@ -552,37 +544,12 @@ class _InputPageState extends State<InputPage> {
         await Permission.bluetoothScan.request().isGranted &&
         await Permission.location.request().isGranted) {
       // 2. Check Connection
-      bool? isConnected = await PrintThermal.bluetooth.isConnected;
-      if (isConnected == true) {
-        await PrintThermal.printReceipt(transaction);
-      } else {
-        // Try to auto-connect to "Accessgo" or "Accesgo"
-        List<BluetoothDevice> bondedDevices = [];
-        try {
-          bondedDevices = await PrintThermal.bluetooth.getBondedDevices();
-        } catch (e) {
-          // ignore
-        }
+      // 2. Try Print (Auto-connect is handled inside)
+      bool success = await PrintThermal.printReceipt(transaction);
 
-        BluetoothDevice? targetDevice;
-        try {
-          targetDevice = bondedDevices.firstWhere(
-            (d) => (d.name ?? '').toLowerCase().contains('acces'),
-          );
-        } catch (e) {
-          targetDevice = null;
-        }
-
-        if (targetDevice != null) {
-          try {
-            await PrintThermal.bluetooth.connect(targetDevice);
-            await PrintThermal.printReceipt(transaction);
-          } catch (e) {
-            // Fallback to manual selection if auto-connect fails
-            _showDeviceSelection(transaction);
-          }
-        } else {
-          // 3. Select Device
+      if (!success) {
+        // Fallback: If auto-connect fails, show manual selection or error
+        if (mounted) {
           _showDeviceSelection(transaction);
         }
       }

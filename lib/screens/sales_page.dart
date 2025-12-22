@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../providers/app_provider.dart';
 import '../models/transaction.dart';
+import '../services/print_thermal.dart';
 
 class SalesPage extends StatefulWidget {
   const SalesPage({super.key});
@@ -250,6 +251,32 @@ class _SalesPageState extends State<SalesPage> {
     );
   }
 
+  Future<void> _handlePrint(TransactionResponse transaction) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sedang mengirim ke printer...')),
+    );
+
+    bool success = await PrintThermal.printReceipt(transaction);
+
+    if (mounted) {
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Berhasil dikirim ke printer'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gagal mencetak. Cek koneksi printer bluetooth.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildTransactionCard(TransactionResponse transaction) {
     final currencyFmt = NumberFormat.currency(
       locale: 'id_ID',
@@ -432,6 +459,19 @@ class _SalesPageState extends State<SalesPage> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _handlePrint(transaction),
+                        icon: const Icon(Icons.print, size: 16),
+                        label: const Text('Cetak Struk'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.grey.shade700,
+                          side: BorderSide(color: Colors.grey.shade300),
+                        ),
+                      ),
                     ),
                   ],
                 ),

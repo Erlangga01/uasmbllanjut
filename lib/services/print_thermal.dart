@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:intl/intl.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/transaction.dart';
 
 class PrintThermal {
@@ -17,17 +18,83 @@ class PrintThermal {
   }
 
   // Main print method
-  static Future<void> printReceipt(TransactionResponse transaction) async {
-    // Check if connected
-    if ((await bluetooth.isConnected) == true) {
-      await _print(transaction);
+  static Future<bool> printReceipt(TransactionResponse transaction) async {
+    // 0. Ensure Permissions
+    if (await Permission.bluetoothConnect.request().isGranted &&
+        await Permission.bluetoothScan.request().isGranted &&
+        await Permission.location.request().isGranted) {
+      // 0.5 Check if Bluetooth is On
+      if ((await bluetooth.isOn) != true) {
+        print("Bluetooth is OFF");
+        return false;
+      }
+
+      // 1. Check if connected
+      if ((await bluetooth.isConnected) != true) {
+        // 2. Try to auto-connect
+        bool connected = await _tryAutoConnect();
+        if (!connected) {
+          print("Printer not connected and auto-connect failed");
+          return false;
+        }
+      }
+
+      // 3. Print
+      return await _print(transaction);
     } else {
-      print("Printer not connected");
-      // UI should handle connection prompts
+      print("Permissions not granted");
+      return false;
     }
   }
 
-  static Future<void> _print(TransactionResponse transaction) async {
+  static Future<bool> _tryAutoConnect() async {
+    try {
+      print("PrintThermal: Getting bonded devices...");
+      List<BluetoothDevice> bondedDevices = await bluetooth.getBondedDevices();
+      print("PrintThermal: Found ${bondedDevices.length} bonded devices.");
+
+      BluetoothDevice? targetDevice;
+      // Find "Accessgo" or "RPP02N" or specific MAC
+      try {
+        targetDevice = bondedDevices.firstWhere((d) {
+          print("PrintThermal: Checking device '${d.name}' (${d.address})");
+          final name = (d.name ?? '').toLowerCase();
+          final address = (d.address ?? '').toUpperCase();
+          return name.contains('acces') ||
+              name.contains('rpp02n') ||
+              address == 'DC:0D:51:FF:DB:06';
+        });
+      } catch (e) {
+        // Not found
+        print(
+          "PrintThermal: No compatible printer (Accessgo/RPP02N) found in bonded devices.",
+        );
+        return false;
+      }
+
+      // Found device
+      print(
+        "PrintThermal: Found target device: ${targetDevice.name} (${targetDevice.address}). Connecting...",
+      );
+      try {
+        await bluetooth.connect(targetDevice);
+      } catch (e) {
+        print("PrintThermal: Exception during connect: $e");
+        return false;
+      }
+
+      // Wait a bit for connection to stabilize
+      await Future.delayed(const Duration(milliseconds: 500));
+      bool isConnected = (await bluetooth.isConnected) == true;
+      print("PrintThermal: Connection status after attempt: $isConnected");
+      return isConnected;
+    } catch (e) {
+      print("PrintThermal: Error auto-connecting: $e");
+    }
+    return false;
+  }
+
+  static Future<bool> _print(TransactionResponse transaction) async {
     final profile = await CapabilityProfile.load();
     final generator = Generator(PaperSize.mm58, profile);
     List<int> bytes = [];
@@ -53,13 +120,12 @@ class PrintThermal {
     bytes += generator.hr();
 
     // 2. Transaction Info
-    bytes += generator.text('No    : ${transaction.id}');
+    bytes += generator.text('No       : ${transaction.id}');
     bytes += generator.text(
-      'Kasir : Admin',
-    ); // Static as requested/implied or default
-    bytes += generator.text(
-      'Tgl   : ${transaction.transactionDate} ${DateFormat('HH:mm').format(transaction.createdAt)}',
+      'Tanggal  : ${transaction.transactionDate} ${DateFormat('HH:mm').format(transaction.createdAt)}',
     );
+    bytes += generator.text('Pelanggan: ${transaction.customerName}');
+    bytes += generator.text('Kasir    : Admin');
     bytes += generator.hr();
 
     // 3. Items
@@ -106,14 +172,14 @@ class PrintThermal {
       ),
     ]);
 
-    bytes += generator.row([
-      PosColumn(text: 'KEMBALI', width: 6),
-      PosColumn(
-        text: _formatCurrency(0),
-        width: 6,
-        styles: const PosStyles(align: PosAlign.right),
-      ),
-    ]);
+    // bytes += generator.row([
+    //   PosColumn(text: 'KEMBALI', width: 6),
+    //   PosColumn(
+    //     text: _formatCurrency(0),
+    //     width: 6,
+    //     styles: const PosStyles(align: PosAlign.right),
+    //   ),
+    // ]);
 
     bytes += generator.hr();
 
@@ -132,8 +198,10 @@ class PrintThermal {
 
     try {
       await bluetooth.writeBytes(Uint8List.fromList(bytes));
+      return true;
     } catch (e) {
       print("Error printing: $e");
+      return false;
     }
   }
 }

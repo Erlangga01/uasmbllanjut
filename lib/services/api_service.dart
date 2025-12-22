@@ -14,7 +14,7 @@ class ApiService {
     if (kIsWeb) {
       return 'http://localhost/advweb_uas/api';
     } else if (Platform.isAndroid) {
-      return 'http://192.168.68.223/advweb_uas/api';
+      return 'http://172.16.44.77/advweb_uas/api';
     } else {
       return 'http://localhost/advweb_uas/api'; // Default fallback
     }
@@ -121,11 +121,11 @@ class ApiService {
         } else {
           // Shorten body if it's HTML or too long
           errorMessage +=
-              ' - ${response.body.length > 100 ? response.body.substring(0, 100) + "..." : response.body}';
+              ' - ${response.body.length > 100 ? "${response.body.substring(0, 100)}..." : response.body}';
         }
       } catch (_) {
         errorMessage +=
-            ' - ${response.body.length > 100 ? response.body.substring(0, 100) + "..." : response.body}';
+            ' - ${response.body.length > 100 ? "${response.body.substring(0, 100)}..." : response.body}';
       }
       throw Exception(errorMessage);
     }

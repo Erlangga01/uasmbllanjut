@@ -383,7 +383,8 @@ class _SalesPageState extends State<SalesPage> {
                                             TextSpan(text: item.productName),
                                             const TextSpan(text: '  '),
                                             TextSpan(
-                                              text: 'x${item.quantity}',
+                                              text:
+                                                  'x${item.quantity} ${item.unit}',
                                               style: const TextStyle(
                                                 fontWeight: FontWeight.bold,
                                                 color: Colors.grey,

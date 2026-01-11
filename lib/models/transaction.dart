@@ -67,6 +67,7 @@ class TransactionDetailResponse {
   final int quantity;
   final double price;
   final String productName;
+  final String unit;
   final double discountPercent;
   final double totalPrice;
 
@@ -76,6 +77,7 @@ class TransactionDetailResponse {
     required this.quantity,
     required this.price,
     required this.productName,
+    this.unit = '',
     this.discountPercent = 0.0,
     this.totalPrice = 0.0,
   });
@@ -87,18 +89,24 @@ class TransactionDetailResponse {
       quantity: json['quantity'] ?? 0,
       price: double.tryParse((json['price'] ?? 0).toString()) ?? 0.0,
       productName:
-          (json['product'] != null && json['product'] is Map)
+          json['name'] ??
+          ((json['product'] != null && json['product'] is Map)
               ? json['product']['name']
-              : 'Unknown Product',
+              : 'Unknown Product'),
+      unit: json['satuan'] ?? '',
       discountPercent:
           double.tryParse((json['discount_percent'] ?? 0).toString()) ?? 0.0,
-      totalPrice: double.tryParse((json['total_price'] ?? 0).toString()) ?? 0.0,
+      totalPrice:
+          double.tryParse(
+            (json['total_price'] ?? json['subtotal'] ?? 0).toString(),
+          ) ??
+          0.0,
     );
   }
 
   @override
   String toString() {
-    return 'TransactionDetailResponse(id: $id, product: $productName, qty: $quantity, price: $price, disc: $discountPercent)';
+    return 'TransactionDetailResponse(id: $id, product: $productName, unit: $unit, qty: $quantity, price: $price, disc: $discountPercent)';
   }
 }
 

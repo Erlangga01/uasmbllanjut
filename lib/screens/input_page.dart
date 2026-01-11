@@ -21,9 +21,11 @@ class _InputPageState extends State<InputPage> {
   final _formKey = GlobalKey<FormState>(); // Key for the "Add Item" form
   final _customerController = TextEditingController();
   final _qtyController = TextEditingController(text: '1');
+  final _unitController = TextEditingController(text: 'Pcs');
   final _dateController = TextEditingController(
     text: DateFormat('yyyy-MM-dd').format(DateTime.now()),
   );
+  final _vatController = TextEditingController(text: '10'); // Default 10% VAT
 
   Product? _selectedProduct;
   final List<CartItem> _cart = [];
@@ -43,7 +45,9 @@ class _InputPageState extends State<InputPage> {
   void dispose() {
     _customerController.dispose();
     _qtyController.dispose();
+    _unitController.dispose();
     _dateController.dispose();
+    _vatController.dispose();
     super.dispose();
   }
 
@@ -64,6 +68,15 @@ class _InputPageState extends State<InputPage> {
     return _cart.fold(0, (sum, item) => sum + item.totalPrice);
   }
 
+  double get _vatAmount {
+    double vatPercent = double.tryParse(_vatController.text) ?? 10.0;
+    return _cartTotal * (vatPercent / 100);
+  }
+
+  double get _grandTotal {
+    return _cartTotal + _vatAmount;
+  }
+
   void _addToCart() {
     if (_formKey.currentState!.validate() && _selectedProduct != null) {
       int qty = int.tryParse(_qtyController.text) ?? 0;
@@ -82,18 +95,107 @@ class _InputPageState extends State<InputPage> {
         if (existingIndex != -1) {
           _cart[existingIndex].quantity += qty;
         } else {
-          _cart.add(CartItem(product: _selectedProduct!, quantity: qty));
+          _cart.add(
+            CartItem(
+              product: _selectedProduct!,
+              quantity: qty,
+              unit: _unitController.text,
+            ),
+          );
         }
 
         // Reset product input only
         _selectedProduct = null;
         _qtyController.text = '1';
+        _unitController.text = 'Pcs';
       });
     } else if (_selectedProduct == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pilih produk terlebih dahulu')),
       );
     }
+  }
+
+  void _showEditDialog(int index, CartItem item) {
+    final nameController = TextEditingController(text: item.name);
+    final priceController = TextEditingController(
+      text: item.price.toStringAsFixed(0),
+    );
+    final qtyController = TextEditingController(text: item.quantity.toString());
+    final unitController = TextEditingController(text: item.unit);
+    final discountController = TextEditingController(
+      text: item.discountPercent.toString(),
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Edit Item'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: 'Nama Produk'),
+                ),
+                TextFormField(
+                  controller: priceController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Harga'),
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: qtyController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Qty'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: unitController,
+                        decoration: const InputDecoration(labelText: 'Satuan'),
+                      ),
+                    ),
+                  ],
+                ),
+                TextFormField(
+                  controller: discountController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Diskon (%)'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  item.name = nameController.text;
+                  item.price =
+                      double.tryParse(priceController.text) ?? item.price;
+                  item.quantity =
+                      int.tryParse(qtyController.text) ?? item.quantity;
+                  item.unit = unitController.text;
+                  item.discountPercent =
+                      double.tryParse(discountController.text) ?? 0.0;
+                });
+                Navigator.pop(context);
+              },
+              child: const Text('Simpan'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _removeFromCart(int index) {
@@ -116,18 +218,33 @@ class _InputPageState extends State<InputPage> {
       return;
     }
 
+    // Capture local state for printing before clearing (or use these variables)
+    // We need to keep a reference to the data to print AFTER submission validation
+    final localCartForPrint = List<CartItem>.from(_cart);
+    final localCustomerName = _customerController.text;
+    final localDate = _dateController.text;
+    final localGrandTotal = _grandTotal;
+    final localVatPercent = double.tryParse(_vatController.text) ?? 10.0;
+
     final transaction = CreateTransactionDto(
       customerName: _customerController.text,
       transactionDate: _dateController.text,
+      subTotal: _cartTotal,
       items:
           _cart
               .map(
                 (item) => TransactionItem(
                   productId: item.product.id,
                   quantity: item.quantity,
+                  name: item.name,
+                  unit: item.unit,
+                  price: item.price,
+                  totalPrice: item.totalPrice,
+                  discountPercent: item.discountPercent,
                 ),
               )
               .toList(),
+      vat: localVatPercent,
     );
 
     bool success = await context.read<AppProvider>().submitTransaction(
@@ -147,16 +264,46 @@ class _InputPageState extends State<InputPage> {
         });
 
         // Promt to print or auto-print based on checkbox
+        // We use the Local Data for printing to ensure accuracy (edits, discounts),
+        // but we try to get the ID from the latest transaction fetched from server.
         final latestTransactions = context.read<AppProvider>().transactions;
+
+        int transactionId = 0;
+        DateTime createdAt = DateTime.now();
+
         if (latestTransactions.isNotEmpty) {
           // Sort by ID desc to get the latest just in case
           final latest = latestTransactions.reduce(
             (curr, next) => curr.id > next.id ? curr : next,
           );
+          transactionId = latest.id;
+          createdAt = latest.createdAt;
+        }
 
-          if (_shouldPrintReceipt) {
-            _processPrint(latest);
-          }
+        // Construct a receipt object using LOCAL data + Server ID
+        final receiptData = TransactionResponse(
+          id: transactionId,
+          customerName: localCustomerName,
+          transactionDate: localDate,
+          totalAmount: localGrandTotal,
+          createdAt: createdAt,
+          tax: localVatPercent,
+          items:
+              localCartForPrint.map((cartItem) {
+                return TransactionDetailResponse(
+                  id: 0, // Not needed for print
+                  productId: cartItem.product.id,
+                  quantity: cartItem.quantity,
+                  price: cartItem.price,
+                  productName: cartItem.name, // Use edited name
+                  discountPercent: cartItem.discountPercent,
+                  totalPrice: cartItem.totalPrice,
+                );
+              }).toList(),
+        );
+
+        if (_shouldPrintReceipt) {
+          _processPrint(receiptData);
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -211,6 +358,20 @@ class _InputPageState extends State<InputPage> {
                 controlAffinity: ListTileControlAffinity.leading,
                 contentPadding: EdgeInsets.zero,
                 activeColor: const Color(0xFF2563EB),
+              ),
+
+              const SizedBox(height: 12),
+
+              // VAT Input
+              TextFormField(
+                controller: _vatController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'PPN / VAT (%)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.percent),
+                ),
+                onChanged: (_) => setState(() {}),
               ),
 
               const SizedBox(height: 12),
@@ -356,6 +517,17 @@ class _InputPageState extends State<InputPage> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: _unitController,
+                    decoration: const InputDecoration(
+                      labelText: 'Satuan',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
                   flex: 3,
                   child: Container(
                     padding: const EdgeInsets.all(16),
@@ -443,11 +615,13 @@ class _InputPageState extends State<InputPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          item.product.name,
+                          item.name,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         Text(
-                          '${item.quantity} x ${NumberFormat.simpleCurrency(locale: 'id_ID', decimalDigits: 0).format(item.product.price)}',
+                          item.discountPercent > 0
+                              ? '${item.quantity} ${item.unit} x ${NumberFormat.simpleCurrency(locale: 'id_ID', decimalDigits: 0).format(item.price)} (Disc ${item.discountPercent.toStringAsFixed(0)}%)'
+                              : '${item.quantity} ${item.unit} x ${NumberFormat.simpleCurrency(locale: 'id_ID', decimalDigits: 0).format(item.price)}',
                           style: TextStyle(
                             color: Colors.grey.shade600,
                             fontSize: 12,
@@ -462,6 +636,10 @@ class _InputPageState extends State<InputPage> {
                       decimalDigits: 0,
                     ).format(item.totalPrice),
                     style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit, color: Colors.blue),
+                    onPressed: () => _showEditDialog(index, item),
                   ),
                   IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -479,24 +657,68 @@ class _InputPageState extends State<InputPage> {
             color: Colors.blue.shade900,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Column(
             children: [
-              const Text(
-                'Total Transaksi',
-                style: TextStyle(color: Colors.white, fontSize: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Subtotal',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  Text(
+                    NumberFormat.simpleCurrency(
+                      locale: 'id_ID',
+                      decimalDigits: 0,
+                    ).format(_cartTotal),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
-              Text(
-                NumberFormat.currency(
-                  locale: 'id_ID',
-                  symbol: 'Rp ',
-                  decimalDigits: 0,
-                ).format(_cartTotal),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'PPN (${_vatController.text}%)',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  Text(
+                    NumberFormat.simpleCurrency(
+                      locale: 'id_ID',
+                      decimalDigits: 0,
+                    ).format(_vatAmount),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.white24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Total Transaksi',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                  Text(
+                    NumberFormat.currency(
+                      locale: 'id_ID',
+                      symbol: 'Rp ',
+                      decimalDigits: 0,
+                    ).format(_grandTotal),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -521,7 +743,7 @@ class _InputPageState extends State<InputPage> {
                   ),
                 )
                 : const FaIcon(FontAwesomeIcons.solidFloppyDisk, size: 18),
-        label: Text(provider.isLoading ? 'Menyimpan...' : 'Simpan Transaksi'),
+        label: Text(provider.isLoading ? 'Menyimpan...' : ' Transaksi'),
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF2563EB), // blue-600
           foregroundColor: Colors.white,

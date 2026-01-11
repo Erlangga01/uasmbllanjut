@@ -129,6 +129,8 @@ class PrintThermal {
     bytes += generator.hr();
 
     // 3. Items
+    double subtotal = 0.0;
+
     for (var item in transaction.items) {
       // Item Name
       bytes += generator.text(
@@ -136,41 +138,135 @@ class PrintThermal {
         styles: const PosStyles(bold: true),
       );
 
-      // Qty x Price ... Total
-      double totalItemPrice = item.quantity * item.price;
+      // Calculations
+      // Note: item.totalPrice from API generally includes the per-item discount.
+      // Let's verify: In previous step CartItem, total = (price * qty) * (1 - disc/100).
+      // So item.totalPrice should be the discounted total.
+      // item.price is the unit price (original).
+      // Let's print:
+      // Qty x Price ...
+      // (Disc xx%) ... Total
+
+      double originalLineTotal = item.quantity * item.price;
+      subtotal += item.totalPrice;
+
+      // Line 1: Qty x Unit Price | Original Total (if no discount) or just Unit Price info
       bytes += generator.row([
         PosColumn(
           text: '${item.quantity} x ${_formatCurrency(item.price)}',
           width: 8,
         ),
         PosColumn(
-          text: _formatCurrency(totalItemPrice),
+          text: _formatCurrency(
+            originalLineTotal,
+          ), // Show original total before disc
           width: 4,
           styles: const PosStyles(align: PosAlign.right),
         ),
       ]);
+
+      // Line 2: If there is discount
+      if (item.discountPercent > 0) {
+        bytes += generator.row([
+          PosColumn(
+            text: 'Desc ${item.discountPercent.toStringAsFixed(0)}%',
+            width: 8,
+            styles: const PosStyles(align: PosAlign.left),
+          ),
+          PosColumn(
+            text: '-${_formatCurrency(originalLineTotal - item.totalPrice)}',
+            width: 4,
+            styles: const PosStyles(align: PosAlign.right),
+          ),
+        ]);
+        // Maybe an extra line showing final "Clean" item total?
+        // Usually receipts just show the final line total at the right if indented,
+        // OR the right column IS the final total.
+        // Let's adjust:
+        // Qty x Price         Total (Final)
+        // (Disc X%)
+        // Let's re-do standard layout:
+
+        // Option B (Clearer):
+        // Item Name
+        // 2 x 50.000 (Disc 10%)    90.000
+
+        // Or if standard:
+        // 2 x 50.000              100.000
+        // Disc 10%                -10.000
+        // -------------------------------
+      }
     }
     bytes += generator.hr();
 
     // 4. Totals
+    // Calculate VAT Amount
+    // transaction.totalAmount is the Grand Total (Subtotal + VAT).
+    // transaction.tax is the VAT Percent (e.g., 10).
+    // So GrandTotal = Subtotal + (Subtotal * Tax/100) = Subtotal * (1 + Tax/100)
+    // Subtotal = GrandTotal / (1 + Tax/100)
+    // But wait, in the input page: _grandTotal = _cartTotal + _vatAmount.
+    // _cartTotal IS the subtotal (sum of item totals).
+    // So if the API stored grand_total correctly, we can reverse calc or use detailed item sum.
+
+    // Let's use the subtotal summed from items above as the source of truth for "Subtotal".
+    // And if `transaction.tax` is percent, we calc VAT amount from subtotal.
+    // Finally verify if (Subtotal + VAT) matches transaction.totalAmount.
+
+    double vatAmount = subtotal * (transaction.tax / 100);
+    double calculatedGrandTotal = subtotal + vatAmount;
+
+    // Subtotal
+    bytes += generator.row([
+      PosColumn(text: 'Subtotal', width: 6),
+      PosColumn(
+        text: _formatCurrency(subtotal),
+        width: 6,
+        styles: const PosStyles(align: PosAlign.right),
+      ),
+    ]);
+
+    // VAT
+    if (transaction.tax > 0) {
+      bytes += generator.row([
+        PosColumn(
+          text: 'PPN (${transaction.tax.toStringAsFixed(0)}%)',
+          width: 6,
+        ),
+        PosColumn(
+          text: _formatCurrency(vatAmount),
+          width: 6,
+          styles: const PosStyles(align: PosAlign.right),
+        ),
+      ]);
+    }
+
+    // Separator?
+    // bytes += generator.hr(); // Maybe too much lines
+
+    // Grand Total
     bytes += generator.row([
       PosColumn(text: 'TOTAL', width: 6, styles: const PosStyles(bold: true)),
       PosColumn(
-        text: _formatCurrency(transaction.totalAmount),
+        text: _formatCurrency(
+          calculatedGrandTotal,
+        ), // Use calculated to ensure consistency or transaction.totalAmount
         width: 6,
         styles: const PosStyles(align: PosAlign.right, bold: true),
       ),
     ]);
 
-    // Assuming immediate payment for now as fields are missing
-    bytes += generator.row([
-      PosColumn(text: 'TUNAI', width: 6),
-      PosColumn(
-        text: _formatCurrency(transaction.totalAmount),
-        width: 6,
-        styles: const PosStyles(align: PosAlign.right),
-      ),
-    ]);
+    bytes += generator.feed(1);
+
+    // Tunai / Payment (Assuming Cash = Total for now as specific Payment details aren't in response yet)
+    // bytes += generator.row([
+    //   PosColumn(text: 'TUNAI', width: 6),
+    //   PosColumn(
+    //     text: _formatCurrency(calculatedGrandTotal),
+    //     width: 6,
+    //     styles: const PosStyles(align: PosAlign.right),
+    //   ),
+    // ]);
 
     // bytes += generator.row([
     //   PosColumn(text: 'KEMBALI', width: 6),
